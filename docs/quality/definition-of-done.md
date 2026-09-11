@@ -137,3 +137,11 @@ CanonicalPerceptionResult, metrics engine, benchmark interface를 다룬다. Gat
 - VLM/Provider 연결, dataset 다운로드, 실제 smoke freeze, metric engine은 범위 밖이다.
 - ExecPlan acceptance criteria, diff/working tree, 한계를 검토한다. Execution 1 PASS는
   Gate 2 전체 PASS 또는 실제 dataset/HF integration 검증 완료를 뜻하지 않는다.
+
+## Gate 2 Execution 2 exit criteria — Hugging Face Dataset Adapter
+
+- HF adapter manifest가 explicit pinned commit, split 및 image/transcription/sample-ID/writer column mapping을 strict하게 검증한다.
+- HF SDK는 provider adapter에 국한되고 output은 canonical sample이다. Benchmark/Evaluation 계층에 HF SDK/row schema 의존이 없다.
+- `HF_TOKEN`만 private/gated access에 사용하고 config, example, output, error에 secret을 기록하지 않는다.
+- revision resolution, mapping columns, image readability, verbatim text compatibility, stable/duplicate ID와 selection 검증이 fixture-only deterministic tests에 있다.
+- `./scripts/dataset inspect|fetch|validate` interface와 cache/Git-ignore 정책이 문서화된다. 실제 remote smoke dataset은 test fixture가 아닌 별도 manual operation이다.

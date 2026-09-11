@@ -2,7 +2,12 @@
 name = "nonsulfit-contracts"
 version = "0.1.0"
 requires-python = ">=3.12"
-dependencies = ["pydantic>=2.12,<3"]
+dependencies = [
+  "datasets>=4.0,<5",
+  "huggingface-hub>=0.30,<1",
+  "pillow>=11,<13",
+  "pydantic>=2.12,<3",
+]
 
 [dependency-groups]
 dev = ["pytest>=9,<10", "ruff>=0.15,<1", "mypy>=1.19,<2"]

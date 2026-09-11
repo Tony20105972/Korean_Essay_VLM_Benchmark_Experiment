@@ -42,3 +42,14 @@ Pydantic strict schema/JSON Schema 지원을 이유로 선택했다. Provider SD
 - `./scripts/dev`는 아직 STUB이다. 제품 서버나 inference 구현을 뜻하지 않는다.
 - 설치된 package는 `from nonsulfit.contracts import CanonicalDatasetSample`로 접근한다.
   serialization/validation 의미는 [Canonical contracts](../contracts/canonical-contracts.md)가 소유한다.
+
+## Hugging Face adapter
+
+`datasets`와 `huggingface-hub`는 `nonsulfit.providers.huggingface` 내부에서만 import한다.
+Canonical 계약과 향후 Evaluation Engine은 HF row/feature/SDK type을 import하지 않는다.
+HF 기본 cache를 사용한다. `HF_HOME`을 명시적으로 설정하는 운영 환경은 repository 밖의
+cache directory를 사용해야 하며, 프로젝트 로컬 `.cache/`와 `hf-cache/`는 Git-ignore한다.
+원본 이미지 및 access token은 Git에 넣지 않는다.
+
+Private/gated dataset token은 process environment의 `HF_TOKEN`만 사용한다. 예시 파일과
+CLI 출력은 token을 포함하거나 echo하지 않는다. 공개 dataset은 token 없이 동작한다.

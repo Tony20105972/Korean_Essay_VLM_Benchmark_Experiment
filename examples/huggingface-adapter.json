@@ -1,0 +1,11 @@
+{
+  "schema_version": "huggingface-adapter/v1",
+  "dataset": "owner/dataset-name",
+  "revision": "0123456789abcdef0123456789abcdef01234567",
+  "split": "train",
+  "image": "image",
+  "transcription": "text",
+  "sample_id": "id",
+  "writer_id": "writer_id",
+  "selected_original_sample_ids": ["stable-upstream-id-001"]
+}
