@@ -84,6 +84,13 @@ Near-duplicate 검사는 선택한 방법/version, 범위, 결과, 미검사 범
 External과 Domain 사이에도 같은 검사와 lineage 관리를 적용하며 중복 source sample을 양쪽 독립 집계에 넣지 않는다.
 동일 원본의 파생 이미지는 새 독립 sample로 취급하지 않으며 같은 split에 속한다.
 
+## Difficult and unreadable samples
+
+G2/G3는 선명하지만 판독이 어려운 손글씨와 capture 손상 사례를 구분하여 포함한다. 실제 sampling/labeling 구현은 후속 Gate 범위다.
+판독 불가 영역에 그럴듯한 GT를 만들어 넣지 않는다. Source region, 판독 가능성/불확실성 검수 기록과 annotation revision을 보존한다.
+Text GT가 확정되지 않아 CER 대상에서 제외된 sample도 safety 평가 자산으로 보존한다.
+난이도 및 Safe Failure 평가 정의는 [Evaluation Metrics](../evaluation/metrics.md)가 소유한다. 이 annotation도 기존 role/holdout 사용 제한을 따른다.
+
 ## Human corrections and evaluation
 
 Perception correction은 새 GT revision 후보이며 검수 후에만 Golden GT로 채택한다. Decision override를 전사 GT로 사용하지 않는다.

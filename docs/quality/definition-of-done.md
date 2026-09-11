@@ -16,7 +16,7 @@ Gate 0은 실행 코드가 아니라 Context 품질로 완료를 판단한다. �
 | Domain handoff 명확 | [Architecture](../architecture/boundaries.md)의 4개 Domain 모두 Question/Owns/Receives/Produces/Must Preserve/Must Not Do/Allowed Dependencies/Forbidden Dependencies 존재 및 의미 검증 |
 | Perception boundary / no auto-correction 명확 | [Verbatim](../ai/perception/verbatim-contract.md)의 예시·reading order·uncertainty와 Architecture의 책임 제한이 일치 |
 | Provider boundary 명확 | SDK import 위치, neutral Gateway 계약, Domain 금지 의존을 Architecture에서 확인 |
-| ARCH001–ARCH007 유효 | ID 존재뿐 아니라 규칙 의미와 각 상세 owner의 일치를 확인 |
+| ARCH001–ARCH009 유효 | ID 존재뿐 아니라 규칙 의미와 각 상세 owner의 일치를 확인 |
 | Dataset roles / final holdout explicit | [Dataset Policy](../ai/datasets/dataset-policy.md)의 matrix, Golden training 금지, selection tuning 분리, writer/duplicate 규칙 확인 |
 | P0 metrics reproducible | [Metrics](../ai/evaluation/metrics.md)의 단위·입력·계산·집계·edge cases를 독립적으로 구현할 수 있고 정렬 동점/빈 GT/실패/annotation 미판정 처리까지 확인 |
 | Normalization does not undermine Verbatim | 평가용 복사본 한정, semantic normalization 금지, versioned transform을 확인 |
@@ -27,14 +27,26 @@ Gate 0은 실행 코드가 아니라 Context 품질로 완료를 판단한다. �
 | Shareable state explicit | git diff/status를 확인하고 평가한 working tree 또는 commit revision을 명시. 미커밋이면 Ready to commit과 공유 한계를 보고 |
 | No premature implementation | Gate 0에서 제외한 제품 코드·도구 플랫폼이 추가되지 않았음을 파일 목록으로 확인 |
 
+## Safe Failure exit criteria
+
+다음은 검증 항목이며 체크 표시 자체는 충족 증거가 아니다.
+
+- [ ] Unreadable ≠ Guess 원칙이 [Vision](../product/vision.md)과 [Verbatim Contract](../ai/perception/verbatim-contract.md)에 명시되어 있다.
+- [ ] Capture Quality와 Recognition Difficulty가 [Architecture](../architecture/boundaries.md)에서 구분된다.
+- [ ] Uncertainty / unreadable을 first-class perception outcome으로 표현하는 계약이 있다 (ARCH008).
+- [ ] 불확실·충돌·판독 불가 결과를 confirmed evidence로 자동 전달하는 것이 금지된다 (ARCH009).
+- [ ] Safe Failure가 [Evaluation](../ai/evaluation/metrics.md)의 품질 목표이며, 지표 개념과 후속 계산 유보 범위가 명확하다.
+- [ ] Evaluation policy가 difficult handwriting slice를 전체 평균과 별도 평가 대상으로 정의한다.
+
 ## Verification procedure
 
 1. README와 index에서 시작해 모든 Canonical 문서를 읽고 기준별 PASS/PARTIAL/MISSING/CONFLICT와 근거를 기록한다.
 2. 로컬 Markdown 링크를 파일 기준으로 해석하여 유효성을 확인하고 옛 Canonical 경로 및 중복 파일을 검색한다.
 3. 교차 문서 검토로 product/domain/provider/dataset/metric 용어와 금지 규칙을 대조한다.
 4. P0 계산 계약을 작은 예시로 확인한다: exact match, 학생 오류의 자동교정, whitespace/Unicode 차이, empty GT, terminal failure, annotation 미판정, percentile n=1.
-5. git diff --check, diff/status와 최종 파일 목록을 검토한다. 기능 구현이나 benchmark 실행 성공을 Gate 0 증거로 요구하지 않는다.
-6. 아래 comprehension 질문과 점수를 audit 보고서에 기록한다. 실패 항목이 남으면 자기 체크로 덮지 않는다.
+5. 선명하지만 판독 불가인 글씨, uncertain 후보의 Evidence 인계, schema-valid unreadable 반환, text-GT 미확정 사례를 대조한다. 추측/확정 승격 금지와 safety 평가 유지가 동시에 성립해야 한다.
+6. git diff --check, diff/status와 최종 파일 목록을 검토한다. 기능 구현이나 benchmark 실행 성공을 Gate 0 증거로 요구하지 않는다.
+7. 아래 comprehension 질문과 점수를 audit 보고서에 기록한다. 실패 항목이 남으면 자기 체크로 덮지 않는다.
 
 ## Agent comprehension questions
 
@@ -50,6 +62,9 @@ Gate 0은 실행 코드가 아니라 Context 품질로 완료를 판단한다. �
 | Final holdout을 보고 prompt를 반복 수정해도 되는가? | Dataset DATA006 |
 | CER 개선과 Auto-Correction 악화가 함께 오면? | Metrics acceptance policy |
 | 전처리 결과로 원본을 교체하거나 Decision override를 전사 GT로 써도 되는가? | Architecture ARCH006/Human review |
+| 사진이 선명하면 전사를 확정해도 되는가? | Architecture의 Capture quality / recognition difficulty 분리 |
+| 못 읽은 내용을 문맥으로 채우거나 Evidence가 확정해도 되는가? | Verbatim Safe Failure + ARCH008/009 |
+| CER가 좋으면 unreadable detection과 hard slice는 생략 가능한가? | Metrics Safe Failure / Difficulty slice evaluation |
 | 다음 Gate는 무엇인가? | 아래 Gate 1 scope |
 
 ## Scoring and blockers

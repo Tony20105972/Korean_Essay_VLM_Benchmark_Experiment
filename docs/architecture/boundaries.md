@@ -10,6 +10,20 @@ Public Contract는 versioned provider-neutral artifact/schema이며 다른 Domai
 모든 handoff artifact는 자신의 ID/version과 upstream artifact references를 갖는다. 후속 Domain은 upstream artifact를 변경하지 않고 새 artifact를 생성한다.
 Canonical Schemas는 공통 ID, source location, uncertainty, provenance 참조를 정의하는 계약이다. 특정 Provider나 제품 Domain 구현에 의존하지 않는다.
 
+## Capture quality and recognition difficulty
+
+두 위험은 별도 축이다. 하나의 image quality 점수로 인식 신뢰도를 대신하지 않는다.
+
+| Risk | Meaning | Examples |
+|---|---|---|
+| Capture Quality Risk | 촬영/이미지 품질로 인해 시각 정보가 손실되거나 왜곡됨 | blur, perspective, shadow, glare, crop loss, low resolution, lighting problem |
+| Recognition Difficulty Risk | 사진이 깨끗해도 손글씨 형태 자체의 난이도로 판독이 어려움 | severe handwriting variation, collapsed glyph shapes, overwriting, faint strokes, unusual character formation, writer-specific ambiguity, visually ambiguous characters |
+
+**Good image quality does not imply reliable handwriting recognition.** Capture Quality ≠ Recognition Confidence.
+Capture Quality와 Handwriting/Recognition Difficulty도 서로 다른 개념이다. Faint strokes 등은 원인이 겹칠 수 있으며 단일 원인으로 강제 분류하지 않는다.
+Risk의 관찰 근거와 해당 source region을 보존하고, 원인을 모르면 unknown으로 남긴다. 선명한 이미지라는 이유로 전사를 confirmed로 승격하지 않는다.
+이는 책임 분류이며 Image Quality Gate, difficulty classifier, Risk Engine 구현이나 threshold 요구가 아니다.
+
 ## Domain handoff contracts
 
 ### Perception
@@ -19,7 +33,7 @@ Canonical Schemas는 공통 ID, source location, uncertainty, provenance 참조�
 | Question | 학생이 실제로 무엇을 썼는가? |
 | Owns | 이미지 기반 인식과 Canonical Perception Result 생성. 전사 행동의 유일한 owner는 [Verbatim Contract](../ai/perception/verbatim-contract.md)다. |
 | Receives | Original student image와 선택적 derived image/preprocessing artifact 및 source references |
-| Produces | Canonical Perception Result: raw transcription, line/region IDs와 source locations, reading-order 관계, uncertainty, provenance references |
+| Produces | Canonical Perception Result: raw transcription, source reference, line/region IDs와 locations, reading-order 관계, uncertain/conflicting spans, unreadable regions, perception status, provenance references |
 | Must Preserve | 의미를 담은 시각 증거, 학생 오류, 확인된 읽기 순서, 원본까지의 추적성. 상세 행동은 Verbatim Contract 적용 |
 | Must Not Do | scoring, rubric judgment, evidence interpretation, spelling/grammar correction, rewriting, intent reconstruction. Evidence·Decision 판단을 선행하지 않음 |
 | Allowed Dependencies | Canonical Schemas, source artifact public contract, Model Gateway Interface |
@@ -27,6 +41,23 @@ Canonical Schemas는 공통 ID, source location, uncertainty, provenance 참조�
 
 Canonical result의 raw transcription은 Provider raw response와 다르다. 전자는 인식된 원문 텍스트, 후자는 Provider가 반환한 원시 응답이다.
 Region은 사용한 이미지의 좌표계와 artifact ID를 명시하며 derived image 좌표는 source로의 변환 참조를 갖는다.
+
+### Perception → Evidence: outcome preservation
+
+Uncertainty / unreadable은 자유 서술 경고가 아니라 **first-class perception outcome**이다.
+Transcription, source reference, uncertain spans, unreadable regions, perception status, provenance를 반드시 함께 표현할 수 있어야 한다.
+텍스트가 전혀 없는 unreadable region도 source location으로 참조할 수 있어야 한다. Schema/enum은 Gate 1/2에서 확정한다.
+페이지 전체 상태로 개별 span의 불확실성을 지우지 않는다. Confirmed는 현재 증거에 근거한 상태이지 오류가 없다는 보증이 아니다.
+
+| Perception outcome | Evidence handoff rule |
+|---|---|
+| Confirmed text | 출처와 상태를 유지하면서 normal evidence processing 허용 |
+| Uncertain / conflicting text | 불확실성·충돌·시각 근거 후보를 보존하고 confirmed evidence와 구분. Evidence가 임의로 uncertainty를 제거하거나 확정 상태로 승격하지 않음 |
+| Unreadable region | 내용이 미확정인 영역 참조를 전달. Semantic guessing으로 내용을 복원하거나 근거가 없다는 확정 판정으로 바꾸지 않음 |
+
+시각 근거를 확인한 새 Perception 결과 또는 이미지 검토에 근거한 human correction revision으로 해소되기 전에는 downstream이 확정 전사로 취급할 수 없다.
+영향받지 않은 confirmed 영역은 처리할 수 있으나 미해결 영역에 의존하는 Decision은 review-needed로 유지하며 점수/판정을 확정하지 않는다.
+모든 uncertain 후보를 버리고 남은 문장만 확정 답안 전체처럼 제시하는 것도 금지한다.
 
 ### Evidence
 
@@ -113,6 +144,11 @@ Gateway는 전사 교정·근거 해석·루브릭 판정을 소유하지 않는
 | ARCH005 | Golden의 training/fine-tuning 금지와 final holdout 격리는 [Dataset Policy](../ai/datasets/dataset-policy.md)의 DATA001/006을 따른다. |
 | ARCH006 | Original student image는 immutable source artifact다. 전처리 결과로 대체할 수 없다. |
 | ARCH007 | Perception은 scoring/rubric judgment/교정/재작성을 하지 않는다. 행동 상세는 [Verbatim Contract](../ai/perception/verbatim-contract.md)가 소유한다. |
+| ARCH008 — Explicit Uncertainty | Perception result must explicitly represent uncertainty and unreadable visual regions. 시각적 증거가 충분하지 않으면 확정 텍스트를 만들어서는 안 된다. 행동 상세는 Verbatim Contract를 따른다. |
+| ARCH009 — Unsafe Propagation Prevention | Uncertain, conflicting, or unreadable perception output must not propagate to Evidence or Decision as confirmed student text. 불확실한 결과를 확정된 학생 원문으로 자동 전달하지 않는다. 위 outcome preservation 계약을 따른다. |
+
+ARCH009는 잘못된 전사 → 확정 텍스트 → Evidence → Decision → 잘못된 첨삭으로 이어지는 전파를 차단한다.
+오류가 탐지되거나 결과가 충돌하면 상태와 참조를 유지하고, 후속 단계의 의미 해석으로 이를 숨기지 않는다.
 
 ## Provenance linkage contract
 

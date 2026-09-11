@@ -55,6 +55,17 @@ Perception correction은 전사 Ground Truth 수정이며 Decision review는 평
 구체 인계·revision 책임은 [Human Review Boundary](../architecture/boundaries.md), 편입/사용 제한은 [Dataset Policy](../ai/datasets/dataset-policy.md)가 소유한다.
 화면·업무 UI 구현은 현재 범위 밖이다.
 
+## Perception quality philosophy
+
+**Unreadable ≠ Guess.** 모든 글자를 억지로 확정하는 것이 목표는 아니다.
+읽을 수 있는 것은 최대한 정확하게 전사하고, 시각적 증거가 부족한 것은 불확실하다고 명시한다.
+확인되지 않은 전사가 확정 사실처럼 Evidence / Decision으로 전달되지 않도록 하는 것까지 제품 품질에 포함한다.
+
+증거가 부족하면 그럴듯한 내용을 생성하는 것보다 uncertainty, unreadable, retry required 또는 human review required를 표현하는 것이 우선이다.
+이들은 제품이 표현해야 할 결과의 의미이며 지금 enum이나 재시도 기능을 구현하라는 요구가 아니다.
+정확도와 함께 **Safe Failure**를 추구한다. 못 읽음을 드러내고 검토 필요성을 알리는 것도 유효한 Perception 결과다.
+행동은 [Verbatim Contract](../ai/perception/verbatim-contract.md), 안전한 인계는 [Architecture](../architecture/boundaries.md), 평가는 [Metrics](../ai/evaluation/metrics.md)가 소유한다.
+
 ## Initial Non-Goals
 
 Gate 0 단계에서 다음은 구현하지 않는다:

@@ -5,9 +5,9 @@
 | Area | Canonical document | 이 문서는 어떤 질문에 답하는가? |
 |---|---|---|
 | Product | [vision.md](product/vision.md) | 누구를 위해 무엇을 만들며, 현재 초점·Human Review 목적·Non-goal은 무엇인가? |
-| Architecture | [boundaries.md](architecture/boundaries.md) | Domain이 무엇을 인계·보존하며, 어디에 의존하고 Provider·provenance·review 경계는 무엇인가? |
-| Perception | [verbatim-contract.md](ai/perception/verbatim-contract.md) | 무엇을 그대로 전사하고 무엇을 금지하며, 읽기 순서·unknown을 어떻게 취급하는가? |
-| AI Evaluation | [metrics.md](ai/evaluation/metrics.md) | P0 metric을 어떻게 동일하게 계산하고 모델/Prompt 변경을 무엇으로 판단하는가? |
+| Architecture | [boundaries.md](architecture/boundaries.md) | Domain/Provider/provenance 경계는 무엇이며, capture quality와 handwriting difficulty는 어떻게 다르고 불확실한 결과는 downstream으로 어떻게 전달되는가? |
+| Perception | [verbatim-contract.md](ai/perception/verbatim-contract.md) | 무엇을 그대로 전사하며, 못 읽었을 때 추측하지 않고 uncertainty/unreadable을 어떻게 드러내는가? |
+| AI Evaluation | [metrics.md](ai/evaluation/metrics.md) | P0 metric을 어떻게 계산하며 Safe Failure와 difficult handwriting을 어떻게 평가하고 모델/Prompt 변경을 판단하는가? |
 | Dataset | [dataset-policy.md](ai/datasets/dataset-policy.md) | Golden·tuning·holdout 사용 권한과 writer/duplicate leakage 방지는 무엇인가? |
 | Quality | [definition-of-done.md](quality/definition-of-done.md) | 실제 Repository 상태가 Gate 0을 통과했는지 어떻게 검증하고 다음 단계는 무엇인가? |
 

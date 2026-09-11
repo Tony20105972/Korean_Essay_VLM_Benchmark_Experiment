@@ -10,10 +10,18 @@ CER가 개선되어도 Auto-Correction 등 핵심 품질이 악화되면 reject 
 이 문서는 `evaluation/metrics-v1` 계산 계약이다. 아래 결과를 바꾸는 정의 변경은 새 policy version을 만든다.
 Dataset의 사용 권한·holdout 격리는 [Dataset Policy](../datasets/dataset-policy.md)가 소유한다.
 
+## Safe Failure quality objective
+
+얼마나 많이 맞추는가뿐 아니라, 틀린 결과를 탐지하는가, 읽을 수 없는 입력의 확정을 안전하게 거부하는가,
+불확실한 결과의 downstream 전파를 막는가, Human Review가 필요한 사례를 식별하는가를 평가한다.
+정확한 전사와 안전한 미확정 결과를 함께 목표로 한다. 모든 입력을 unreadable로 처리하는 것도 품질 달성이 아니다.
+CER, 전사 coverage, unreadable/uncertainty 비율, false accept와 검토 부담을 함께 보며 CER 개선으로 safety 결함을 상쇄하지 않는다.
+
 ## Shared calculation contract
 
 - 평가 단위 sample은 한 source page다. 문서 여러 페이지는 page별 sample로 나눈다. 각 frozen benchmark execution은 sample마다 하나의 page run과 terminal outcome을 갖는다. benchmark_execution_id는 page run_id들을 묶는 평가 실행 ID이며 inference run_id와 구분한다.
-- GT는 이미지와 대조하여 검수한 verbatim 문자열이다. Unicode code point 순서로 비교한다. 눈으로도 미확정인 GT, 읽기 순서 미확정 GT는 text/auto-correction 평가 eligible=false와 이유를 manifest에 사전 기록하고 별도 slice로 보고한다. Candidate 결과를 보고 제외하지 않는다.
+- GT는 이미지와 대조하여 검수한 verbatim 문자열이다. Unicode code point 순서로 비교한다. 눈으로도 미확정인 GT, 읽기 순서 미확정 GT는 text/auto-correction 평가 eligible=false와 이유를 manifest에 사전 기록하고 별도 slice로 보고한다. Candidate 결과를 보고 제외하지 않는다. Text GT가 미확정이어도 판독 가능성/안전한 거부를 평가하는 safety annotation 대상에서는 제외하지 않는다.
+- Candidate가 unreadable/uncertain을 반환했다는 이유로 text-eligible sample을 제외하지 않는다. 유효한 안전 거부 결과는 전사한 부분만 비교하고 누락은 그대로 측정한다. Safety 평가는 별도 축이다.
 - Prediction은 저장된 canonical raw transcription이다. Provider raw response, feedback, human correction을 prediction으로 사용하지 않는다. 출력 문자열의 trim/교정/암묵적 정규화는 금지한다.
 - 유효한 terminal canonical result가 없으면 text metric의 prediction은 빈 문자열로 둔다. 실패를 text 평균에서 조용히 제외하지 않는다. eligible count, failed count, GT 제외 count를 함께 보고한다.
 - Levenshtein 비용은 match=0, substitution/insertion/deletion=1이다. Prefix dynamic programming의 traceback은 문자열 끝에서 시작하며 동점이면 match, substitution, deletion, insertion 순으로 고른다. 이 하나의 deterministic alignment에서 S/D/I를 얻는다.
@@ -130,6 +138,7 @@ Normalization은 **evaluation-time comparison transform**이다. Inference outpu
 | Interpretation | 낮을수록 좋음. terminal success가 중간 실패·비용·지연을 지우지 않음 |
 
 Text schema의 구체 필드 구현은 후속 Gate에서 정하되 benchmark 전에 schema/parser version과 retry/repair policy를 동결한다.
+명시적인 unreadable/uncertainty 결과가 동결된 canonical schema를 만족하면 유효한 outcome이며 structure failure가 아니다. Network/parser failure와 안전한 인식 거부를 구분한다.
 문법적 parsing 외에 전사 교정으로 repair하면 Verbatim 위반이다. Schema만 맞고 전사가 틀리면 text metric 실패이지 structure 실패로 재분류하지 않는다.
 
 ## Cost / Page
@@ -175,12 +184,12 @@ Success-only latency와 model-call latency는 보조 metric으로 따로 표시�
 - Cost change, latency change, Decision (`accept`, `reject`, `defer`), Reason, reviewer/time, acceptance policy version
 
 같은 eligible samples, metric 정의와 통제된 실행 조건으로 비교한다. 조건을 바꾸면 변경 이유와 영향도 기록한다.
-Slice 목록은 결과 열람 전에 freeze하며 tier 및 G2 failure-mode slice를 포함한다.
+Slice 목록은 결과 열람 전에 freeze하며 tier, G2 failure-mode와 아래 handwriting difficulty slice를 포함한다. 안전성 검토 결과와 미측정 범위도 acceptance record에 기록한다.
 Hard threshold는 Golden development baseline 확보 후 **versioned acceptance policy**로 확정한다. Gate 0에서는 임의 숫자를 만들지 않는다.
 정책 동결 전 결과는 진단용이며 candidate acceptance는 `defer`다. 이후에는 그 정책의 한계와 tradeoff 규칙으로 결정한다.
 필수 P0가 누락/미판정이면 accept하지 않는다. Auto-Correction 기회가 없는 경우 annotation된 G2 evaluation을 추가해야 한다.
 CER 개선만으로 accept하지 않으며 핵심 품질 악화는 reject 대상으로 검토하고, 정책 위반은 reject한다.
-Contract 위반을 Normalized CER 또는 비용 개선으로 정당화하지 않는다.
+Contract 위반을 Normalized CER 또는 비용 개선으로 정당화하지 않는다. Unsupported Guessing이나 ARCH008/009 위반이 확인된 candidate는 CER가 좋아도 accept하지 않는다. Safety 지표 미구현을 안전성 검증 완료로 해석하지 않는다.
 비교/선택은 development benchmark에서 한다. Final holdout은 후보/정책 동결 후 최종 보고용이며 그 결과로 후보를 다시 선택하지 않는다.
 
 ## Calculation review examples
@@ -200,12 +209,43 @@ Contract 위반을 Normalized CER 또는 비용 개선으로 정당화하지 않
 | Request duration이 120ms 하나뿐 | P50=P95=120ms |
 | Retry 후 성공, primary $0.01 + retry $0.02 | Structure failure=0/1, Cost/Page=$0.03; latency는 두 attempt와 대기 포함 |
 
+## Difficulty slice evaluation
+
+**Overall CER must not hide severe degradation on difficult-handwriting slices.**
+전체 평균과 `easy`, `medium`, `hard`, `extreme / ambiguous` handwriting slice를 별도로 평가해야 한다.
+Capture quality는 별도 축으로 기록하여 선명하지만 악필인 사례와 촬영 손상 사례를 혼동하지 않는다. 가능하면 두 축의 교차 결과도 보고한다.
+각 slice의 sample 수, text-GT eligibility/coverage, CER와 Safe Failure 결과를 함께 보고한다. 미확정 GT를 CER에서 제외한 수를 공개하고 safety 평가에는 유지한다.
+난이도 labeling 세칙은 Gate 2 이후 정교화하되 실제 비교 전 versioned annotation policy로 동결한다. Candidate 성적을 보고 난이도를 재분류하지 않는다.
+Label이 없으면 unlabelled/미측정으로 보고하고 어려운 손글씨에 대한 성능 검증을 주장하지 않는다.
+Hard/extreme의 심각한 악화를 전체 CER 개선으로 숨기지 않으며 acceptance review에서 별도 검토한다.
+
+## Safe Failure metrics — P1 / future operationalization
+
+아래는 지금 고정하는 목적·개념 정의다. 기존 P0 계산 계약은 유지한다.
+P1 배치는 annotation, 상태 schema, downstream 관측 경계 및 Human Review 운영 정책 확정 후 계산을 구현한다는 뜻이다.
+Safe Failure 제품 목표와 ARCH008/009 준수 자체를 미루는 것은 아니다.
+
+| Metric | Purpose and conceptual definition | Interpretation |
+|---|---|---|
+| Uncertainty Recall | 실제로 틀리거나 시각적으로 불확실하다고 검수된 transcription 단위 중 시스템이 uncertainty/unreadable로 식별한 비율. 기존 Uncertainty Error Recall을 확장·통합한 이름 | 높을수록 안전한 탐지. 동일 단위의 오류/불확실 중복은 한 번만 셈 |
+| False Accept Rate | 실제로 틀렸거나 시각적으로 지원되지 않는 것으로 검수된 transcription 단위 중 confirmed/accepted로 통과한 비율 | **핵심 Safety Metric**, 낮을수록 좋음. 전체 accepted 중 오류 비율과 혼동하지 않음 |
+| Unsafe Propagation Rate | downstream 인계 대상의 uncertain/conflicting/unreadable 또는 검수상 wrong/unsupported 단위 중 confirmed student evidence로 전달된 비율 | 낮을수록 좋음. Perception 정확도와 별개인 시스템 안전성. 인계가 차단된 대상도 분모에 남김 |
+| Unreadable Detection Rate | 현재 이미지에서 충분한 시각 증거가 없어 판독 불가/미확정으로 검수된 영역 중 unreadable/uncertainty로 올바르게 식별한 비율 | 높을수록 좋음. 단순히 hard라는 난이도 label만으로 정답 unreadable로 간주하지 않음 |
+| Human Review Precision | Human Review로 보낸 사례 중 동결된 review policy에 따라 실제 검토가 필요했던 사례의 비율 | 높을수록 검토 부담을 줄임. Review를 보내지 않아 생긴 누락과 함께 해석 |
+
+도입 전 source-region 기반 평가 단위·중복 처리·matching, verified correctness/visual support labels, confirmed 판정 경계,
+review-needed 판정 기준, annotation/adjudication version을 확정한다. GT 문자열을 추측해서 판독 불가 영역의 safety label을 만들지 않는다.
+Unsafe Propagation은 run/source에 연결된 Perception 상태와 Evidence/Decision 인계 기록으로 평가한다. Downstream이 아직 없으면 not measured이며 0으로 보고하지 않는다.
+분모가 없거나 검수가 미완료이면 N/A/미판정 및 coverage를 보고하고 완전한 안전성을 주장하지 않는다.
+False Accept와 Unsafe Propagation은 위에서 정한 위험 대상 분모를 쓰며 전체 요청 수로 나누어 위험을 희석하지 않는다.
+Human Review Precision의 계산 구현은 실제 review policy 확정까지 유보한다. 나머지 P1도 독립 구현 가능한 annotation 계약을 먼저 확정한다.
+
 ## P1 metrics (future; not implemented in Gate 0)
 
 | Metric | Intended question |
 |---|---|
 | Critical Semantic Error Rate | 의미를 왜곡하는 치명적 오류가 얼마나 있는가? |
-| Uncertainty Error Recall | 실제 전사 오류 중 uncertainty 표시가 포착한 비율은 무엇인가? |
+| Uncertainty Recall (기존 Uncertainty Error Recall 통합) | 위 Safe Failure metrics의 단일 정의를 사용한다. |
 | Human Correction Time | 사람이 AI 결과를 수정하는 데 걸리는 시간은? |
 | Auto Acceptance Rate | 수정 없이 승인된 결과 비율은? |
 
