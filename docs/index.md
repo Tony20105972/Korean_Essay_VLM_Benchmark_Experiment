@@ -11,6 +11,7 @@
 | Dataset | [dataset-policy.md](ai/datasets/dataset-policy.md) | Golden·tuning·holdout 사용 권한과 writer/duplicate leakage 방지는 무엇인가? |
 | Canonical Schemas | [canonical-contracts.md](contracts/canonical-contracts.md) | Dataset/manifest/perception/benchmark의 구현 필드, version, strict validation과 통합 경계는 무엇인가? |
 | Hugging Face Adapter | [huggingface-adapter.md](datasets/huggingface-adapter.md) | HF pinned revision과 서로 다른 row columns를 canonical dataset sample로 어떻게 변환하는가? |
+| Smoke Dataset | [smoke-v1.md](datasets/smoke-v1.md) | smoke-v1의 source, sample identity, 선택 규칙과 한계는 무엇인가? |
 | Quality | [definition-of-done.md](quality/definition-of-done.md) | Gate별 완료를 어떻게 검증하는가? |
 
 README는 프로젝트 진입점이며 정책 owner가 아니다. Architecture의 invariant 요약은 행동·데이터·metric owner를 대체하지 않는다.
@@ -37,7 +38,7 @@ Any Task: [AGENTS.md](../AGENTS.md) → 이 문서 → 작업별 문서 → 관�
 |---|---|
 | Product | [Vision](product/vision.md) |
 | Perception | [Boundaries](architecture/boundaries.md) → [Verbatim](ai/perception/verbatim-contract.md) → [Metrics](ai/evaluation/metrics.md) |
-| Datasets | [Dataset policy](ai/datasets/dataset-policy.md) → [Metrics](ai/evaluation/metrics.md) → [Hugging Face adapter](datasets/huggingface-adapter.md) |
+| Datasets | [Dataset policy](ai/datasets/dataset-policy.md) → [Metrics](ai/evaluation/metrics.md) → [Hugging Face adapter](datasets/huggingface-adapter.md) → [smoke-v1](datasets/smoke-v1.md) |
 | AI behavior change | [Verbatim](ai/perception/verbatim-contract.md) → [Metrics](ai/evaluation/metrics.md) → [Done](quality/definition-of-done.md) |
 | Architecture change | [System map](../ARCHITECTURE.md) → [Boundaries](architecture/boundaries.md) |
 | Complex planning | [ExecPlan rules/template](exec-plans/README.md) |

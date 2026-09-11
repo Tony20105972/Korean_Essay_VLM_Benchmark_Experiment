@@ -12,20 +12,35 @@ from pathlib import Path
 from typing import Annotated, Any, Literal, Protocol, cast
 
 from PIL import Image, UnidentifiedImageError
-from pydantic import BaseModel, ConfigDict, StringConstraints, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from nonsulfit.contracts import CanonicalDatasetSample
+from nonsulfit.providers import parquet
 
 NonEmpty = Annotated[str, StringConstraints(min_length=1, pattern=r"\S")]
 CommitPrefix = Annotated[str, StringConstraints(pattern=r"^[0-9a-fA-F]{7,64}$")]
+RowIndex = Annotated[int, Field(ge=0)]
+
+CONTENT_IDENTITY_NOTE = "sample identity derived from image and GT content digest"
+CONTENT_ID_PREFIX = "sha256-"
+CONTENT_ID_DOMAIN = b"nonsulfit/hf-content-id/v1"
 
 
 class AdapterError(ValueError):
     """A source row or remote dataset cannot satisfy the canonical boundary."""
 
 
+class RowLocation(BaseModel):
+    """A verified fetch hint: where a known sample sat, not what makes it that sample."""
+
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
+    sample_id: NonEmpty
+    file: NonEmpty
+    row: RowIndex
+
+
 class AdapterConfig(BaseModel):
-    """Strict, portable adapter manifest; selected IDs are upstream IDs, never row offsets."""
+    """Strict, portable adapter manifest; selected IDs are stable IDs, never row offsets."""
 
     model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
     schema_version: Literal["huggingface-adapter/v1"]
@@ -34,9 +49,15 @@ class AdapterConfig(BaseModel):
     split: NonEmpty
     image: NonEmpty
     transcription: NonEmpty
-    sample_id: NonEmpty
+    sample_id: NonEmpty | None = None
     writer_id: NonEmpty | None = None
     selected_original_sample_ids: tuple[NonEmpty, ...] | None = None
+    selected_rows: tuple[RowLocation, ...] | None = None
+
+    @property
+    def identity_method(self) -> Literal["upstream-id", "content-digest"]:
+        """Datasets without an ID column are identified by content, never by row order."""
+        return "upstream-id" if self.sample_id else "content-digest"
 
     @model_validator(mode="after")
     def unique_selection(self) -> AdapterConfig:
@@ -44,6 +65,17 @@ class AdapterConfig(BaseModel):
             len(self.selected_original_sample_ids) != len(set(self.selected_original_sample_ids))
         ):
             raise ValueError("selected_original_sample_ids contains duplicates")
+        if self.selected_original_sample_ids and self.selected_rows:
+            raise ValueError("selected_rows already carries its sample IDs; use one selection form")
+        if self.selected_rows is not None:
+            if not self.selected_rows:
+                raise ValueError("selected_rows must not be empty")
+            ids = [location.sample_id for location in self.selected_rows]
+            positions = [(location.file, location.row) for location in self.selected_rows]
+            if len(set(ids)) != len(ids):
+                raise ValueError("selected_rows contains duplicate sample IDs")
+            if len(set(positions)) != len(positions):
+                raise ValueError("selected_rows contains duplicate row positions")
         return self
 
 
@@ -56,6 +88,9 @@ class DatasetDescription(BaseModel):
     columns: tuple[NonEmpty, ...]
     feature_types: dict[NonEmpty, NonEmpty]
     preview: dict[str, str]
+    preview_source: Literal["parquet-row-group", "unavailable"] = "unavailable"
+    split_num_examples: dict[NonEmpty, RowIndex] = {}
+    data_file_count: RowIndex = 0
     likely_image_fields: tuple[NonEmpty, ...] = ()
     likely_transcription_fields: tuple[NonEmpty, ...] = ()
     likely_sample_id_fields: tuple[NonEmpty, ...] = ()
@@ -73,6 +108,14 @@ class HubClient(Protocol):
 
     def rows(
         self, dataset: str, revision: str, split: str, token: str | None
+    ) -> Iterable[Mapping[str, object]]: ...
+
+    def rows_at(
+        self,
+        dataset: str,
+        revision: str,
+        locations: Sequence[tuple[str, int]],
+        token: str | None,
     ) -> Iterable[Mapping[str, object]]: ...
 
 
@@ -100,10 +143,21 @@ def verify_resolved_revision(requested: str, resolved: str) -> None:
         raise AdapterError("HF revision did not resolve to the requested immutable commit")
 
 
+def content_sample_id(image: bytes, transcription: str) -> str:
+    """Identify a row by what it contains, so upstream reordering cannot rename samples."""
+    digest = sha256(
+        CONTENT_ID_DOMAIN + b"\x00" + sha256(image).digest() + b"\x00" + transcription.encode()
+    ).hexdigest()
+    return f"{CONTENT_ID_PREFIX}{digest[:32]}"
+
+
 def _required_columns(config: AdapterConfig) -> set[str]:
-    return {config.image, config.transcription, config.sample_id} | (
-        {config.writer_id} if config.writer_id else set()
-    )
+    mapped = {config.image, config.transcription}
+    if config.sample_id:
+        mapped.add(config.sample_id)
+    if config.writer_id:
+        mapped.add(config.writer_id)
+    return mapped
 
 
 def _image_bytes(value: object) -> tuple[bytes, str]:
@@ -173,47 +227,86 @@ class HuggingFaceDatasetAdapter:
             self.config.dataset, self.config.revision, self.token
         )
         self._verify_revision(resolved)
+        locations = self.config.selected_rows
+        samples = (
+            self._from_locations(locations, resolved) if locations else self._from_split(resolved)
+        )
+        return MaterializedDataset(samples, resolved)
+
+    def _from_locations(
+        self, locations: Sequence[RowLocation], resolved: str
+    ) -> tuple[CanonicalDatasetSample, ...]:
+        """Read only the pinned rows, then prove each still holds the sample it promised."""
+        positions = tuple((location.file, location.row) for location in locations)
+        rows = self.client.rows_at(self.config.dataset, resolved, positions, self.token)
+        samples: list[CanonicalDatasetSample] = []
+        for location, row in zip(locations, rows, strict=True):
+            self._check_columns(row)
+            sample = self.convert_row(row, resolved)
+            if sample.source.original_sample_id != location.sample_id:
+                raise AdapterError(
+                    f"{location.file} row {location.row} no longer holds {location.sample_id}; "
+                    "upstream rows moved or their content changed"
+                )
+            samples.append(sample)
+        return tuple(samples)
+
+    def _from_split(self, resolved: str) -> tuple[CanonicalDatasetSample, ...]:
         selected = set(self.config.selected_original_sample_ids or ())
         samples: list[CanonicalDatasetSample] = []
-        seen_ids: set[str] = set()
         found_ids: set[str] = set()
         for row in self.client.rows(self.config.dataset, resolved, self.config.split, self.token):
-            missing = _required_columns(self.config) - set(row)
-            if missing:
-                raise AdapterError(f"mapped columns missing from row: {', '.join(sorted(missing))}")
-            original_id = _identifier(row[self.config.sample_id], self.config.sample_id)
+            self._check_columns(row)
+            mapped_id = self._mapped_identifier(row)
+            if selected and mapped_id is not None and mapped_id not in selected:
+                continue
+            sample = self.convert_row(row, resolved)
+            original_id = str(sample.source.original_sample_id)
             if selected and original_id not in selected:
                 continue
             if original_id in found_ids:
                 raise AdapterError(f"duplicate upstream sample ID: {original_id}")
             found_ids.add(original_id)
-            samples.append(self._convert(row, original_id, resolved))
-            if samples[-1].sample_id in seen_ids:
-                raise AdapterError(f"duplicate canonical sample ID: {samples[-1].sample_id}")
-            seen_ids.add(samples[-1].sample_id)
+            samples.append(sample)
         missing_selected = selected - found_ids
         if missing_selected:
             raise AdapterError(
                 f"selected sample IDs not found: {', '.join(sorted(missing_selected))}"
             )
-        return MaterializedDataset(tuple(samples), resolved)
+        return tuple(samples)
+
+    def _check_columns(self, row: Mapping[str, object]) -> None:
+        missing = _required_columns(self.config) - set(row)
+        if missing:
+            raise AdapterError(f"mapped columns missing from row: {', '.join(sorted(missing))}")
+
+    def _mapped_identifier(self, row: Mapping[str, object]) -> str | None:
+        """Content identity needs the converted payload, so only mapped IDs are known early."""
+        if self.config.sample_id is None:
+            return None
+        return _identifier(row[self.config.sample_id], self.config.sample_id)
 
     def _verify_revision(self, resolved: str) -> None:
         verify_resolved_revision(self.config.revision, resolved)
 
-    def _convert(
-        self, row: Mapping[str, object], original_id: str, resolved_revision: str
+    def convert_row(
+        self, row: Mapping[str, object], resolved_revision: str
     ) -> CanonicalDatasetSample:
+        """Convert one mapped row into a canonical sample; also used by smoke selection."""
         image, image_kind = _image_bytes(row[self.config.image])
         text = _text(row[self.config.transcription], self.config.transcription)
+        mapped_id = self._mapped_identifier(row)
+        original_id = mapped_id if mapped_id is not None else content_sample_id(image, text)
         writer = None
         if self.config.writer_id is not None:
             writer = _identifier(row[self.config.writer_id], self.config.writer_id)
         digest = sha256(image).hexdigest()
         canonical_id = f"hf:{self.config.dataset}@{resolved_revision}:{original_id}"
-        provenance_notes: tuple[str, ...] = (
-            () if writer else ("writer-disjoint guarantee unavailable",)
-        )
+        notes: list[str] = []
+        if not writer:
+            notes.append("writer-disjoint guarantee unavailable")
+        if mapped_id is None:
+            notes.append(CONTENT_IDENTITY_NOTE)
         payload: dict[str, Any] = {
             "schema_version": "dataset-sample/v1",
             "sample_id": canonical_id,
@@ -224,7 +317,7 @@ class HuggingFaceDatasetAdapter:
                 "revision": resolved_revision,
                 "split": self.config.split,
                 "original_sample_id": original_id,
-                "identity_method": "upstream-id",
+                "identity_method": self.config.identity_method,
             },
             "input": {
                 "artifact_id": f"sha256:{digest}",
@@ -245,7 +338,7 @@ class HuggingFaceDatasetAdapter:
                     {"artifact_id": f"hf:{self.config.dataset}", "version": resolved_revision},
                     {"artifact_id": f"hf-image:{digest}", "version": image_kind},
                 ],
-                "notes": list(provenance_notes),
+                "notes": notes,
             },
         }
         # The canonical contract defines JSON as its interchange boundary.  Keeping this
@@ -280,13 +373,12 @@ class RealHubClient:
             ) from error
         features = builder.info.features
         columns = tuple(features.keys()) if features else ()
-        splits = tuple(builder.info.splits.keys()) if builder.info.splits else ()
+        split_sizes = {
+            name: int(info.num_examples) for name, info in (builder.info.splits or {}).items()
+        }
+        splits = tuple(split_sizes)
         chosen_split = split or (splits[0] if splits else None)
-        preview: dict[str, str] = {}
-        if chosen_split is not None:
-            dataset_view = builder.as_dataset(split=chosen_split)
-            if len(dataset_view):
-                preview = {key: type(value).__name__ for key, value in dataset_view[0].items()}
+        preview, preview_source, file_count = self._preview(dataset, resolved, chosen_split, token)
         return DatasetDescription(
             dataset=dataset,
             requested_revision=revision,
@@ -295,6 +387,9 @@ class RealHubClient:
             columns=columns,
             feature_types={key: str(value) for key, value in (features or {}).items()},
             preview=preview,
+            preview_source=preview_source,
+            split_num_examples=split_sizes,
+            data_file_count=file_count,
             likely_image_fields=tuple(
                 key
                 for key, value in (features or {}).items()
@@ -303,7 +398,7 @@ class RealHubClient:
             likely_transcription_fields=tuple(
                 key
                 for key in columns
-                if key.lower() in {"text", "label", "transcription", "transcript"}
+                if key.lower() in {"text", "label", "transcription", "transcript", "output"}
             ),
             likely_sample_id_fields=tuple(
                 key for key in columns if key.lower() in {"id", "sample_id", "sampleid", "uuid"}
@@ -314,6 +409,22 @@ class RealHubClient:
                 if key.lower() in {"writer", "writer_id", "author", "author_id"}
             ),
         )
+
+    def _preview(
+        self, dataset: str, resolved: str, split: str | None, token: str | None
+    ) -> tuple[dict[str, str], Literal["parquet-row-group", "unavailable"], int]:
+        """Preview from footer metadata and one text row group; image payloads stay remote."""
+        if split is None:
+            return {}, "unavailable", 0
+        try:
+            files = parquet.list_data_files(dataset, resolved, split, token)
+            return (
+                parquet.preview(dataset, resolved, files[0], token),
+                "parquet-row-group",
+                len(files),
+            )
+        except parquet.ParquetAccessError:
+            return {}, "unavailable", 0
 
     def rows(
         self, dataset: str, revision: str, split: str, token: str | None
@@ -332,3 +443,17 @@ class RealHubClient:
         for column in image_columns:
             dataset_view = dataset_view.cast_column(column, Image(decode=False))
         return cast(Sequence[Mapping[str, object]], dataset_view)
+
+    def rows_at(
+        self,
+        dataset: str,
+        revision: str,
+        locations: Sequence[tuple[str, int]],
+        token: str | None,
+    ) -> Iterable[Mapping[str, object]]:
+        """Fetch pinned rows by row group so a smoke subset never downloads a whole split."""
+        try:
+            for _file, _row, values in parquet.read_locations(dataset, revision, locations, token):
+                yield values
+        except parquet.ParquetAccessError as error:
+            raise AdapterError(str(error)) from error

@@ -45,7 +45,8 @@ Pydantic strict schema/JSON Schema 지원을 이유로 선택했다. Provider SD
 
 ## Hugging Face adapter
 
-`datasets`와 `huggingface-hub`는 `nonsulfit.providers.huggingface` 내부에서만 import한다.
+`datasets`와 `huggingface-hub`는 `nonsulfit.providers.huggingface` 내부에서만, `pyarrow`는
+`nonsulfit.providers.parquet` 내부에서만 import한다.
 Canonical 계약과 향후 Evaluation Engine은 HF row/feature/SDK type을 import하지 않는다.
 HF 기본 cache를 사용한다. `HF_HOME`을 명시적으로 설정하는 운영 환경은 repository 밖의
 cache directory를 사용해야 하며, 프로젝트 로컬 `.cache/`와 `hf-cache/`는 Git-ignore한다.

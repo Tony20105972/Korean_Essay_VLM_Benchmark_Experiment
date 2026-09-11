@@ -145,3 +145,17 @@ CanonicalPerceptionResult, metrics engine, benchmark interface를 다룬다. Gat
 - `HF_TOKEN`만 private/gated access에 사용하고 config, example, output, error에 secret을 기록하지 않는다.
 - revision resolution, mapping columns, image readability, verbatim text compatibility, stable/duplicate ID와 selection 검증이 fixture-only deterministic tests에 있다.
 - `./scripts/dataset inspect|fetch|validate` interface와 cache/Git-ignore 정책이 문서화된다. 실제 remote smoke dataset은 test fixture가 아닌 별도 manual operation이다.
+
+## Gate 2 Execution 3 exit criteria — smoke-v1 freeze
+
+- `inspect`가 pinned 40-char SHA, split별 row 수, 실제 column/feature를 image payload 전송 없이 보고한다.
+- ID column이 없는 source는 `content-digest` identity를 쓰고 canonical sample이 이를 그대로 기록한다.
+  Row 위치는 검증되는 fetch hint일 뿐이며 재계산한 ID가 다르면 실패한다.
+- `smoke-v1`이 canonical `DatasetManifest`(tier `G0`, role `benchmark`, `golden: false`)로 동결되고
+  `./scripts/dataset validate smoke-v1`이 전체 split 다운로드 없이 pin과 일치함을 확인한다.
+- 선택은 seed 없이 결정론적이며 length band floor와 label 비례 배분을 문서화한 규칙대로 적용한다.
+- GT 검증이 empty/duplicate/encoding/Unicode 이상/mixed-script를 보고하고 GT를 수정하지 않는다.
+- Writer identity, handwriting difficulty, near-duplicate 검수, permission review의 부재를 명시한다.
+  제공되지 않는 다양성 축을 주장하지 않는다.
+- fixture-only deterministic tests가 배분/선택/GT 검증/identity/pin 검증을 다루고 `./scripts/verify`가 통과한다.
+- VLM 추론, OpenRouter, metric 계산, verifier, fine-tuning, Golden 선언은 범위 밖이다.

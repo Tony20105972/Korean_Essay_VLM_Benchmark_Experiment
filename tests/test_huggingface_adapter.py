@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from base64 import b64decode
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 
 import pytest
@@ -12,10 +12,12 @@ from pydantic import ValidationError
 
 from nonsulfit import dataset_cli
 from nonsulfit.providers.huggingface import (
+    CONTENT_IDENTITY_NOTE,
     AdapterConfig,
     AdapterError,
     DatasetDescription,
     HuggingFaceDatasetAdapter,
+    content_sample_id,
     hf_token,
 )
 
@@ -63,6 +65,17 @@ class FakeHub:
         self.tokens.append(token)
         assert (dataset, revision, split) == ("owner/korean", RESOLVED, "train")
         return self._rows
+
+    def rows_at(
+        self,
+        dataset: str,
+        revision: str,
+        locations: Sequence[tuple[str, int]],
+        token: str | None,
+    ) -> Iterable[Mapping[str, object]]:
+        self.tokens.append(token)
+        self.requested_locations = list(locations)
+        return [self._rows[row] for _file, row in locations]
 
 
 def config_data() -> dict[str, object]:
@@ -249,3 +262,126 @@ def test_cli_reports_config_errors_without_traceback(
     manifest.write_text("{}", encoding="utf-8")
     assert dataset_cli.main(["validate", str(manifest)]) == 2
     assert "dataset error:" in capsys.readouterr().err
+
+
+def content_config() -> dict[str, object]:
+    """A source without an ID column: identity has to come from the content itself."""
+    config = config_data()
+    config.update(sample_id=None, writer_id=None)
+    return config
+
+
+def test_missing_id_column_yields_stable_content_identity() -> None:
+    materialized = adapter(content_config()).materialize()
+    first, second = materialized.samples
+    expected = content_sample_id(IMAGE_BYTES, "학생의 문재점\n그대로")
+    assert first.source.identity_method == "content-digest"
+    assert first.source.original_sample_id == expected
+    assert first.sample_id == f"hf:owner/korean@{RESOLVED}:{expected}"
+    assert CONTENT_IDENTITY_NOTE in first.provenance.notes
+    assert second.source.original_sample_id != expected
+
+
+def test_content_identity_ignores_row_order_but_tracks_content() -> None:
+    reversed_rows = list(reversed(rows()))
+    forward = adapter(content_config()).materialize().samples
+    backward = adapter(content_config(), reversed_rows).materialize().samples
+    assert {sample.sample_id for sample in forward} == {sample.sample_id for sample in backward}
+    edited = dict(rows()[0])
+    edited["transcript"] = "학생의 문제점"
+    changed = adapter(content_config(), [edited]).materialize().samples[0]
+    assert changed.sample_id != forward[0].sample_id
+
+
+def test_selected_rows_fetch_only_pinned_positions() -> None:
+    expected = content_sample_id(IMAGE_BYTES, "둘째 답안")
+    config = content_config()
+    config["selected_rows"] = [{"sample_id": expected, "file": "data/train-0.parquet", "row": 1}]
+    hub = FakeHub(rows())
+    materialized = HuggingFaceDatasetAdapter(
+        AdapterConfig.model_validate_json(json.dumps(config)), hub, token=None
+    ).materialize()
+    assert hub.requested_locations == [("data/train-0.parquet", 1)]
+    assert [sample.source.original_sample_id for sample in materialized.samples] == [expected]
+
+
+def test_moved_or_edited_row_fails_instead_of_silently_substituting() -> None:
+    config = content_config()
+    config["selected_rows"] = [
+        {
+            "sample_id": content_sample_id(IMAGE_BYTES, "둘째 답안"),
+            "file": "data/train-0.parquet",
+            "row": 0,
+        }
+    ]
+    with pytest.raises(AdapterError, match="no longer holds"):
+        HuggingFaceDatasetAdapter(
+            AdapterConfig.model_validate_json(json.dumps(config)), FakeHub(rows()), token=None
+        ).materialize()
+
+
+@pytest.mark.parametrize(
+    ("selected_rows", "error"),
+    [
+        ([], "must not be empty"),
+        (
+            [
+                {"sample_id": "a", "file": "f.parquet", "row": 0},
+                {"sample_id": "a", "file": "f.parquet", "row": 1},
+            ],
+            "duplicate sample IDs",
+        ),
+        (
+            [
+                {"sample_id": "a", "file": "f.parquet", "row": 0},
+                {"sample_id": "b", "file": "f.parquet", "row": 0},
+            ],
+            "duplicate row positions",
+        ),
+        ([{"sample_id": "a", "file": "f.parquet", "row": -1}], "greater than or equal to 0"),
+    ],
+)
+def test_selected_rows_reject_ambiguous_pins(selected_rows: object, error: str) -> None:
+    config = content_config()
+    config["selected_rows"] = selected_rows
+    with pytest.raises(ValidationError, match=error):
+        AdapterConfig.model_validate_json(json.dumps(config))
+
+
+def test_selection_forms_are_mutually_exclusive() -> None:
+    config = config_data()
+    config["selected_original_sample_ids"] = ["page-001"]
+    config["selected_rows"] = [{"sample_id": "page-001", "file": "f.parquet", "row": 0}]
+    with pytest.raises(ValidationError, match="one selection form"):
+        AdapterConfig.model_validate_json(json.dumps(config))
+
+
+def test_cli_resolves_a_bare_name_to_a_frozen_manifest_pair(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config = content_config()
+    config["selected_rows"] = [
+        {
+            "sample_id": content_sample_id(IMAGE_BYTES, "둘째 답안"),
+            "file": "data/train-0.parquet",
+            "row": 1,
+        }
+    ]
+    (tmp_path / "smoke-test.adapter.json").write_text(json.dumps(config), encoding="utf-8")
+    monkeypatch.setattr(dataset_cli, "RealHubClient", lambda: FakeHub(rows()))
+    assert dataset_cli.main(["validate", "smoke-test", "--manifest-dir", str(tmp_path)]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["samples"] == 1
+    # No frozen canonical manifest beside it means the pin check is reported as not run.
+    assert result["frozen_manifest_checked"] is False
+
+
+@pytest.mark.parametrize(
+    "example",
+    ["examples/huggingface-adapter.json", "examples/huggingface-adapter-content-id.json"],
+)
+def test_documented_examples_parse_strictly_and_carry_no_token(example: str) -> None:
+    text = Path(example).read_text(encoding="utf-8")
+    config = AdapterConfig.model_validate_json(text)
+    assert len(config.revision) == 40
+    assert "token" not in text.lower()

@@ -1,0 +1,17 @@
+{
+  "schema_version": "huggingface-adapter/v1",
+  "dataset": "owner/dataset-without-id-column",
+  "revision": "0123456789abcdef0123456789abcdef01234567",
+  "split": "train",
+  "image": "image",
+  "transcription": "output",
+  "sample_id": null,
+  "writer_id": null,
+  "selected_rows": [
+    {
+      "sample_id": "sha256-0123456789abcdef0123456789abcdef",
+      "file": "data/train-00000-of-00086.parquet",
+      "row": 3
+    }
+  ]
+}
