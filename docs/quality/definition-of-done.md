@@ -99,3 +99,41 @@ Gate 0 통과 후 Gate 1 — Seed Harness에서 다음을 구축한다:
 후속 schema/parser 구현은 여기서 고정한 책임과 계산 계약을 따라야 한다.
 Product UI/API, Gateway/Provider 구현, dataset loader/benchmark runner, CI/linter, MCP/skills/multi-agent,
 fine-tuning/verifier/risk engine/writer adaptation은 이번 Gate 0 remediation의 산출물이 아니다.
+
+## Gate 1 exit criteria — Seed Harness
+
+Gate 0 기준과 계약은 유지한다. Gate 1은 아래 Harness 기준으로 별도 검증한다.
+
+| Criterion | Evidence / verification |
+|---|---|
+| 단일 Agent 시작점 | AGENTS.md → docs/index.md → task-specific docs 경로가 명확 |
+| Router와 canonical ownership | AGENTS.md가 상세 계약을 복제하지 않고 Perception의 boundaries/verbatim/metrics 3개 문서를 연결 |
+| Context router | Index에서 dataset, AI behavior, architecture, complex planning 경로 발견 가능 |
+| 시스템 지도 | ARCHITECTURE.md의 4개 Domain과 Gateway 경계가 Architecture owner와 일치 |
+| Claude 일관성 | CLAUDE.md가 AGENTS.md를 먼저 읽도록 하고 독립 행동 계약을 만들지 않음 |
+| 계획 체계 | ExecPlan README/template, active/completed 구조 및 검증 가능한 acceptance criteria 존재 |
+| 최소 운영 정책 | stack-agnostic conventions와 .agent 정책 존재; Gate 1 skills/workflows는 비어 있음 |
+| 실행 interface | dev/test/lint/typecheck/verify/agent/doctor 모두 파일이며 실행 가능 |
+| 구조 검증 | doctor가 Gate 0/1 필수 문서와 6개 script를 검사하고 누락/권한 오류 시 nonzero 반환 |
+| 통합 검증 | verify가 doctor → lint → typecheck → test 순서로 실행하며 실패를 전파 |
+| 범위 준수 | 제품/Provider/Gateway/dataset/benchmark/CI/MCP 구현 없음 |
+| 공유 상태 | diff/link/shell 검증 결과와 working tree 또는 commit 상태를 완료 계획에 기록 |
+
+STUB 명령의 성공은 interface 검증이며 제품 lint/typecheck/test 성공이 아니다.
+완료 검토에서는 Perception 문서 3개 발견, Verbatim 10개 규칙 비복제, Claude 순서 일치,
+ARCH 규칙 전체 비복제, 계획 위치 active/, 테스트 명령 ./scripts/test, doctor 전체 필수 파일 검증을 확인한다.
+Gate 1 PASS 후 Gate 2 — Evaluation Foundation에서 dataset schema, smoke manifest,
+CanonicalPerceptionResult, metrics engine, benchmark interface를 다룬다. Gate 1에서는 구현하지 않는다.
+
+## Gate 2 Execution 1 exit criteria — Contract Foundation
+
+- [Canonical contracts](../contracts/canonical-contracts.md)의 다섯 public schema가 구현되고
+  strict type, required fields, unknown/optional metadata 및 Unicode round-trip을 검증한다.
+- Perception의 source locations, uncertainty/unreadable, reading order, provenance를 표현하고
+  모순된 상태/참조를 거부하는 deterministic tests가 있다.
+- Manifest pins 및 materialized samples, benchmark/result context 연결을 검증한다.
+- Stack 선택과 실제 검증 도구를 conventions에 명시한다. `./scripts/verify`에서
+  lint/typecheck/test가 실제 실행되며 남은 STUB을 성공 증거로 사용하지 않는다.
+- VLM/Provider 연결, dataset 다운로드, 실제 smoke freeze, metric engine은 범위 밖이다.
+- ExecPlan acceptance criteria, diff/working tree, 한계를 검토한다. Execution 1 PASS는
+  Gate 2 전체 PASS 또는 실제 dataset/HF integration 검증 완료를 뜻하지 않는다.

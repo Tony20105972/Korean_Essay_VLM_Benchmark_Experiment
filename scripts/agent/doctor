@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+set -euo pipefail
+repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "$repo_root"
+echo "=== NonsulFit Agent Doctor ==="
+required_files=(
+  AGENTS.md CLAUDE.md ARCHITECTURE.md docs/index.md
+  docs/product/vision.md docs/architecture/boundaries.md
+  docs/ai/perception/verbatim-contract.md docs/ai/evaluation/metrics.md
+  docs/ai/datasets/dataset-policy.md docs/quality/definition-of-done.md
+  docs/engineering/conventions.md docs/exec-plans/README.md .agent/README.md
+)
+required_scripts=(scripts/dev scripts/test scripts/lint scripts/typecheck scripts/verify scripts/agent/doctor)
+issues=0
+for file in "${required_files[@]}"; do
+  if [[ -f "$file" ]]; then
+    echo "  OK: $file"
+  else
+    echo "  MISSING: $file"
+    issues=$((issues + 1))
+  fi
+done
+for script in "${required_scripts[@]}"; do
+  if [[ -f "$script" && -x "$script" ]]; then
+    echo "  OK: $script"
+  else
+    echo "  MISSING OR NOT EXECUTABLE: $script"
+    issues=$((issues + 1))
+  fi
+done
+# Git cannot track empty directories; bootstrap them without placeholder files.
+for directory in .agent/skills .agent/workflows docs/exec-plans/active docs/exec-plans/completed; do
+  if [[ ! -d "$directory" ]]; then
+    if mkdir -p -- "$directory"; then
+      echo "  CREATED: $directory"
+    else
+      echo "  FAILED TO CREATE: $directory"
+      issues=$((issues + 1))
+    fi
+  else
+    echo "  OK: $directory/"
+  fi
+done
+if [[ "$issues" -gt 0 ]]; then
+  echo "FAIL: $issues issue(s) found."
+  exit 1
+fi
+echo "=== Doctor: All checks passed (structure only) ==="
